@@ -1,5 +1,10 @@
+var bb_timeinput = {
+	Models: {},
+	Views: {}
+}
 
-insitu.UI.Models.Time = Backbone.Model.extend({
+
+bb_timeinput.Models.Time = Backbone.Model.extend({
 	defaults: {
 		hour: undefined,
 		minutes: undefined
@@ -17,11 +22,17 @@ insitu.UI.Models.Time = Backbone.Model.extend({
 
 		_.each(attributes, function(value, key){
 			switch(key){
+
 				case "hour":
-					checkedAttributes.hour = this._checkHour( value );
+					if(this._checkHour( value )){
+						checkedAttributes.hour = value;
+					}
 					break;
+
 				case "minutes":
-					checkedAttributes.minutes = this._checkMinutes( value );
+					if(this._checkMinutes( value )){
+						checkedAttributes.minutes = value;
+					}
 					break;
 			}
 		}, this);
@@ -43,10 +54,10 @@ insitu.UI.Models.Time = Backbone.Model.extend({
 			|| minutes < 0
 			|| minutes > 59
 		){
-			return undefined;
+			return false;
 		}
 
-		return minutes;
+		return true;
 	},
 
 	_checkHour: function(hour){
@@ -58,45 +69,101 @@ insitu.UI.Models.Time = Backbone.Model.extend({
 			|| hour < 0
 			|| hour > 24
 		){
-			return undefined;
+			return false;
 		}
 
-		return hour;
+		return true;
 
 	}
 
 });
 
-insitu.UI.Views.TimeInput = Backbone.View.extend({
+bb_timeinput.Views.TimeInput = Backbone.View.extend({
 
-	model: insitu.UI.Models.Time,
+	model: bb_timeinput.Models.Time,
 
 	template: _.template( $("#tpl-time-input").html() ),
 
-	suggestions: undefined,
-	readonly: undefined,
+
+	options: {
+		suggestions: undefined,
+		readonly: undefined,
+
+		afterChange: undefined,
+		afterModelChange: undefined,
+
+		inputError: undefined
+	},
+
+	events: {
+		"change :input": "_handleChange"
+	},
 
 	initialize: function(options){
-		_.defaults(options, {
-			readonly: false,
-			suggestions: [],
-		});
+		if(_.isObject(options)){
 
-		this.suggestions = options.suggestions;
-		this.readonly = options.readonly;
+			_.each(options, function(val, key){
 
-		if(!_.isUndefined(options.model) && options.model instanceof insitu.UI.Models.Time ){
-			this.model = options.model;
-		}else{
-			this.model = new this.model();
+				if(_.has(this.options, key)){
+					this.options[key] = val;
+				}
+
+			}, this);
 		}
+
+		// _.extend(this, this.options);
+
+		this.model = new this.model();
 
 	},
 
 	render: function(){
-		debugger;
+		this.setElement( this.template({
+			hour: this.model.get("hour"),
+			minutes: this.model.get("minutes")
+		}) );
+
+		this.delegateEvents();
+
+		return this;
+	},
+
+	_handleChange: function(event){
+		var $target = $(event.target);
+		var type = $target.prop("name");
+
+		var newValue = $target.val();
+
+		// Trigger possible Callback, is hook for altering the value manually
+		if(this.options.afterChange){
+			var callbackReturn = this.options.afterChange( newValue, type, this );
+			if(!_.isUndefined(callbackReturn)){
+				newValue = callbackReturn;
+			}
+		}
+
+
+		// try to set value in model, let model do the validation
+		if(!this.model.set(type, newValue )){
+			// Value was wrong
+			$target.val("").addClass("wrongValue");
+
+			if(this.options.afterModelChange){
+				this.options.afterModelChange( newValue, type, this );
+			}
+
+			$target.focus();
+
+		}else{
+
+			$target.removeClass("wrongValue");
+
+			if(this.options.inputError){
+				this.options.inputError( newValue, type, this );
+			}
+
+			$target.next(":input").focus();
+		}
 	}
 
 });
-
-// insitu.UI.Views.TimeSpanInput
