@@ -2,4 +2,9 @@
 
 var timeinput = new bb_timeinput.Views.TimeInput({});
 
-$("#demo").append( timeinput.render().$el );
+$("#timeInput").append( timeinput.render().$el );
+
+
+var timespan = new bb_timeinput.Views.TimeSpanInput();
+
+$("#timespanInput").append( timespan.render().$el );

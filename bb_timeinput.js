@@ -4,6 +4,17 @@ var bb_timeinput = {
 }
 
 
+bb_timeinput.options = 	{
+	suggestions: undefined,
+	readonly: undefined,
+
+	afterChange: undefined,
+	afterModelChange: undefined,
+
+	inputError: undefined
+};
+
+
 bb_timeinput.Models.Time = Backbone.Model.extend({
 	defaults: {
 		hour: undefined,
@@ -47,6 +58,9 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 
 	_checkMinutes: function(minutes){
 
+		if(_.isUndefined(minutes))
+			return true;
+
 		minutes = Number(minutes);
 
 		if(
@@ -61,6 +75,9 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 	},
 
 	_checkHour: function(hour){
+
+		if(_.isUndefined(hour))
+			return true;
 
 		hour = Number(hour);
 
@@ -78,26 +95,9 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 
 });
 
-bb_timeinput.Views.TimeInput = Backbone.View.extend({
 
-	model: bb_timeinput.Models.Time,
-
-	template: _.template( $("#tpl-time-input").html() ),
-
-
-	options: {
-		suggestions: undefined,
-		readonly: undefined,
-
-		afterChange: undefined,
-		afterModelChange: undefined,
-
-		inputError: undefined
-	},
-
-	events: {
-		"change :input": "_handleChange"
-	},
+bb_timeinput.Views.Base = Backbone.View.extend({
+	options: bb_timeinput.options,
 
 	initialize: function(options){
 		if(_.isObject(options)){
@@ -111,10 +111,19 @@ bb_timeinput.Views.TimeInput = Backbone.View.extend({
 			}, this);
 		}
 
-		// _.extend(this, this.options);
+	},
+})
 
-		this.model = new this.model();
 
+bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
+
+	model: (function(){ return new bb_timeinput.Models.Time() })(),
+
+	template: _.template( $("#tpl-time-input").html() ),
+
+	events: {
+		"change :input": "_handleChange",
+		"keyup :input": "_handleInput"
 	},
 
 	render: function(){
@@ -126,6 +135,40 @@ bb_timeinput.Views.TimeInput = Backbone.View.extend({
 		this.delegateEvents();
 
 		return this;
+	},
+
+
+	getTime: function(){
+		return {
+			hour: this.model.get("hour"),
+			minutes: this.model.get("minutes")
+		}
+	},
+
+	getTimeString: function(){
+		var minutes = this.model.get("minutes").toString();
+		if(minutes.length === 1){
+			minutes = "0" + minutes;
+		}
+		return this.model.get("hour").toString() + ":" + minutes;
+	},
+
+	_handleInput: function(event){
+
+		if(
+			(event.keyCode >= 48 && event.keyCode <= 90)
+			|| (event.keyCode >= 96 && event.keyCode <= 105)
+		){
+			var $target = $(event.target);
+			var value = $target.val();
+
+			if(value.length >= 2){
+				this._handleChange(event);
+			}
+		}
+
+
+
 	},
 
 	_handleChange: function(event){
@@ -161,9 +204,67 @@ bb_timeinput.Views.TimeInput = Backbone.View.extend({
 			if(this.options.inputError){
 				this.options.inputError( newValue, type, this );
 			}
-
-			$target.next(":input").focus();
+			$target.val(newValue);	// to be sure it is cleaned of all other crap like spaces and so on
+			var $next = $target.next(":input");
+			if($next.length > 0){
+				$next.focus();
+			}else{
+				$target.blur();
+				this.trigger("finished");
+			}
 		}
 	}
 
 });
+
+
+
+bb_timeinput.Models.TimeSpan = Backbone.Model.extend({
+
+	defaults: {
+		start: (function(){ return new bb_timeinput.Models.Time() })(),
+		end: (function(){ return new bb_timeinput.Models.Time() })()
+	}
+
+});
+
+
+
+bb_timeinput.Views.TimeSpanInput = bb_timeinput.Views.Base.extend({
+
+	template: _.template($("#tpl-time-span-input").html()),
+
+	model: (function(){ return new bb_timeinput.Models.TimeSpan() })(),
+
+	timeinput: bb_timeinput.Views.TimeInput,
+
+	start: undefined,
+	end: undefined,
+
+	initialize: function(options){
+		bb_timeinput.Views.Base.prototype.initialize.call(this, options);
+
+		this.start = new this.timeinput(this.options);
+		this.end = new this.timeinput(this.options);
+
+		this.listenTo(this.start, "finished", function(event){
+			this.end.$el.find(":input:first").focus();
+		}, this);
+
+	},
+
+	render: function(){
+
+		var $el = $(this.template({}));
+
+		$el.find(".start").html( this.start.render().$el );
+		$el.find(".end").html( this.end.render().$el );
+
+		this.setElement( $el );
+
+		return this;
+
+	}
+
+
+})
