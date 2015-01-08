@@ -123,7 +123,7 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 
 	events: {
 		"change :input": "_handleChange",
-		"keyup :input": "_handleInput"
+		"input :input": "_handleInput"
 	},
 
 	render: function(){
@@ -155,16 +155,13 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 
 	_handleInput: function(event){
 
-		if(
-			(event.keyCode >= 48 && event.keyCode <= 90)
-			|| (event.keyCode >= 96 && event.keyCode <= 105)
-		){
-			var $target = $(event.target);
-			var value = $target.val();
+		event.stopPropagation();
 
-			if(value.length >= 2){
-				this._handleChange(event);
-			}
+		var $target = $(event.target);
+		var value = $target.val();
+
+		if(value.length >= 2){
+			this._handleChange(event);
 		}
 
 
@@ -172,6 +169,7 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 	},
 
 	_handleChange: function(event){
+		event.stopPropagation();
 		var $target = $(event.target);
 		var type = $target.prop("name");
 
@@ -219,22 +217,9 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 
 
 
-bb_timeinput.Models.TimeSpan = Backbone.Model.extend({
-
-	defaults: {
-		start: (function(){ return new bb_timeinput.Models.Time() })(),
-		end: (function(){ return new bb_timeinput.Models.Time() })()
-	}
-
-});
-
-
-
 bb_timeinput.Views.TimeSpanInput = bb_timeinput.Views.Base.extend({
 
 	template: _.template($("#tpl-time-span-input").html()),
-
-	model: (function(){ return new bb_timeinput.Models.TimeSpan() })(),
 
 	timeinput: bb_timeinput.Views.TimeInput,
 
@@ -264,6 +249,17 @@ bb_timeinput.Views.TimeSpanInput = bb_timeinput.Views.Base.extend({
 
 		return this;
 
+	},
+
+	getTimespan: function(){
+		return {
+			start: this.start.getTime(),
+			end: this.end.getTime()
+		}
+	},
+
+	getTimespanString: function(){
+		return this.start.getTimeString() + " - " + this.end.getTimeString();
 	}
 
 
