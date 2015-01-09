@@ -32,40 +32,50 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 		}
 
 		_.each(attributes, function(value, key){
-			switch(key){
 
-				case "hour":
-					if(this._checkHour( value )){
-						checkedAttributes.hour = value;
-					}
-					break;
+			if(_.contains( ["hour", "minutes"], key )){
 
-				case "minutes":
-					if(this._checkMinutes( value )){
-						checkedAttributes.minutes = value;
+				if( _.isUndefined(value) || value == "" ){
+					checkedAttributes[key] = undefined; // neede for initialization
+				}else{
+
+					value = Number(value);
+
+					if(this._checkInput(value, key)){
+						checkedAttributes[key] = value;
 					}
-					break;
+				}
+
 			}
 		}, this);
+
 
 		if(!_.isEmpty(checkedAttributes)){
 			return Backbone.Model.prototype.set.call(this, checkedAttributes, options);
 		}
 
-		return false;
+	},
+
+	_checkInput: function(value, key){
+
+		if(isNaN(value))
+			return false;
+
+		switch(key){
+			case "minutes":
+				return this._isMinutes(value);
+				break;
+			case "hour":
+				return this._isHour(value);
+				break;
+		}
 
 	},
 
-	_checkMinutes: function(minutes){
-
-		if(_.isUndefined(minutes))
-			return true;
-
-		minutes = Number(minutes);
+	_isMinutes: function(minutes){
 
 		if(
-			isNaN( minutes )
-			|| minutes < 0
+			minutes < 0
 			|| minutes > 59
 		){
 			return false;
@@ -74,16 +84,10 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 		return true;
 	},
 
-	_checkHour: function(hour){
-
-		if(_.isUndefined(hour))
-			return true;
-
-		hour = Number(hour);
+	_isHour: function(hour){
 
 		if(
-			isNaN( hour )
-			|| hour < 0
+			hour < 0
 			|| hour > 24
 		){
 			return false;
@@ -117,13 +121,25 @@ bb_timeinput.Views.Base = Backbone.View.extend({
 
 bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 
-	model: (function(){ return new bb_timeinput.Models.Time() })(),
+	model: bb_timeinput.Models.Time,
 
 	template: _.template( $("#tpl-time-input").html() ),
 
+	changeFocus: false,
+
 	events: {
-		"change :input": "_handleChange",
+		"blur :input": "_handleBlur",
 		"input :input": "_handleInput"
+	},
+
+	initialize: function(options){
+
+		bb_timeinput.Views.Base.prototype.initialize.call(this, options);
+
+		this.model = new this.model();
+
+		this.listenTo(this.model, "change", this._updateInputs);
+
 	},
 
 	render: function(){
@@ -153,6 +169,31 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 		return this.model.get("hour").toString() + ":" + minutes;
 	},
 
+	_updateInputs: function(){
+		var hour = this.model.get("hour");
+		var min = this.model.get("minutes");
+
+		if(!_.isUndefined( hour )){
+			this.$el.find(":input[name=hour]").val( this.model.get("hour") );
+		}
+
+		if( !_.isUndefined(min) ){
+			min = min.toString();
+			if(min.length == 1)
+				min = "0" + min;
+
+			this.$el.find(":input[name=minutes]").val( min );
+		}
+
+	},
+
+	_handleBlur: function(event){
+
+		event.stopPropagation();
+		this._handleChange(event, this.changeFocus);
+		this.changeFocus = false;
+	},
+
 	_handleInput: function(event){
 
 		event.stopPropagation();
@@ -161,15 +202,17 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 		var value = $target.val();
 
 		if(value.length >= 2){
-			this._handleChange(event);
+			// this._handleChange(event, true);
+			this.changeFocus = true;
+			$target.blur();
 		}
 
 
 
 	},
 
-	_handleChange: function(event){
-		event.stopPropagation();
+	_handleChange: function(event, changeFocus){
+
 		var $target = $(event.target);
 		var type = $target.prop("name");
 
@@ -193,7 +236,8 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 				this.options.afterModelChange( newValue, type, this );
 			}
 
-			$target.focus();
+			if(changeFocus)
+				$target.focus();
 
 		}else{
 
@@ -203,13 +247,17 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 				this.options.inputError( newValue, type, this );
 			}
 			$target.val(newValue);	// to be sure it is cleaned of all other crap like spaces and so on
+
 			var $next = $target.next(":input");
-			if($next.length > 0){
-				$next.focus();
-			}else{
-				$target.blur();
-				this.trigger("finished");
+
+			if(changeFocus){
+				if($next.length > 0){
+					$next.focus();
+				}else{
+					this.trigger("finished");
+				}
 			}
+
 		}
 	}
 
