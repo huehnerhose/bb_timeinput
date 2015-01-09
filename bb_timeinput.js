@@ -4,6 +4,17 @@ var bb_timeinput = {
 }
 
 
+bb_timeinput.options = 	{
+	suggestions: undefined,
+	readonly: undefined,
+
+	afterChange: undefined,
+	afterModelChange: undefined,
+
+	inputError: undefined
+};
+
+
 bb_timeinput.Models.Time = Backbone.Model.extend({
 	defaults: {
 		hour: undefined,
@@ -21,37 +32,50 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 		}
 
 		_.each(attributes, function(value, key){
-			switch(key){
 
-				case "hour":
-					if(this._checkHour( value )){
-						checkedAttributes.hour = value;
-					}
-					break;
+			if(_.contains( ["hour", "minutes"], key )){
 
-				case "minutes":
-					if(this._checkMinutes( value )){
-						checkedAttributes.minutes = value;
+				if( _.isUndefined(value) || value == "" ){
+					checkedAttributes[key] = undefined; // neede for initialization
+				}else{
+
+					value = Number(value);
+
+					if(this._checkInput(value, key)){
+						checkedAttributes[key] = value;
 					}
-					break;
+				}
+
 			}
 		}, this);
+
 
 		if(!_.isEmpty(checkedAttributes)){
 			return Backbone.Model.prototype.set.call(this, checkedAttributes, options);
 		}
 
-		return false;
+	},
+
+	_checkInput: function(value, key){
+
+		if(isNaN(value))
+			return false;
+
+		switch(key){
+			case "minutes":
+				return this._isMinutes(value);
+				break;
+			case "hour":
+				return this._isHour(value);
+				break;
+		}
 
 	},
 
-	_checkMinutes: function(minutes){
-
-		minutes = Number(minutes);
+	_isMinutes: function(minutes){
 
 		if(
-			isNaN( minutes )
-			|| minutes < 0
+			minutes < 0
 			|| minutes > 59
 		){
 			return false;
@@ -60,13 +84,10 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 		return true;
 	},
 
-	_checkHour: function(hour){
-
-		hour = Number(hour);
+	_isHour: function(hour){
 
 		if(
-			isNaN( hour )
-			|| hour < 0
+			hour < 0
 			|| hour > 24
 		){
 			return false;
@@ -78,26 +99,9 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 
 });
 
-bb_timeinput.Views.TimeInput = Backbone.View.extend({
 
-	model: bb_timeinput.Models.Time,
-
-	template: _.template( $("#tpl-time-input").html() ),
-
-
-	options: {
-		suggestions: undefined,
-		readonly: undefined,
-
-		afterChange: undefined,
-		afterModelChange: undefined,
-
-		inputError: undefined
-	},
-
-	events: {
-		"change :input": "_handleChange"
-	},
+bb_timeinput.Views.Base = Backbone.View.extend({
+	options: bb_timeinput.options,
 
 	initialize: function(options){
 		if(_.isObject(options)){
@@ -111,9 +115,30 @@ bb_timeinput.Views.TimeInput = Backbone.View.extend({
 			}, this);
 		}
 
-		// _.extend(this, this.options);
+	},
+})
+
+
+bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
+
+	model: bb_timeinput.Models.Time,
+
+	template: _.template( $("#tpl-time-input").html() ),
+
+	changeFocus: false,
+
+	events: {
+		"blur :input": "_handleBlur",
+		"input :input": "_handleInput"
+	},
+
+	initialize: function(options){
+
+		bb_timeinput.Views.Base.prototype.initialize.call(this, options);
 
 		this.model = new this.model();
+
+		this.listenTo(this.model, "change", this._updateInputs);
 
 	},
 
@@ -128,7 +153,66 @@ bb_timeinput.Views.TimeInput = Backbone.View.extend({
 		return this;
 	},
 
-	_handleChange: function(event){
+
+	getTime: function(){
+		return {
+			hour: this.model.get("hour"),
+			minutes: this.model.get("minutes")
+		}
+	},
+
+	getTimeString: function(){
+		var minutes = this.model.get("minutes").toString();
+		if(minutes.length === 1){
+			minutes = "0" + minutes;
+		}
+		return this.model.get("hour").toString() + ":" + minutes;
+	},
+
+	_updateInputs: function(){
+		var hour = this.model.get("hour");
+		var min = this.model.get("minutes");
+
+		if(!_.isUndefined( hour )){
+			this.$el.find(":input[name=hour]").val( this.model.get("hour") );
+		}
+
+		if( !_.isUndefined(min) ){
+			min = min.toString();
+			if(min.length == 1)
+				min = "0" + min;
+
+			this.$el.find(":input[name=minutes]").val( min );
+		}
+
+	},
+
+	_handleBlur: function(event){
+
+		event.stopPropagation();
+		this._handleChange(event, this.changeFocus);
+		this.changeFocus = false;
+	},
+
+	_handleInput: function(event){
+
+		event.stopPropagation();
+
+		var $target = $(event.target);
+		var value = $target.val();
+
+		if(value.length >= 2){
+			// this._handleChange(event, true);
+			this.changeFocus = true;
+			$target.blur();
+		}
+
+
+
+	},
+
+	_handleChange: function(event, changeFocus){
+
 		var $target = $(event.target);
 		var type = $target.prop("name");
 
@@ -152,7 +236,8 @@ bb_timeinput.Views.TimeInput = Backbone.View.extend({
 				this.options.afterModelChange( newValue, type, this );
 			}
 
-			$target.focus();
+			if(changeFocus)
+				$target.focus();
 
 		}else{
 
@@ -161,9 +246,69 @@ bb_timeinput.Views.TimeInput = Backbone.View.extend({
 			if(this.options.inputError){
 				this.options.inputError( newValue, type, this );
 			}
+			$target.val(newValue);	// to be sure it is cleaned of all other crap like spaces and so on
 
-			$target.next(":input").focus();
+			var $next = $target.next(":input");
+
+			if(changeFocus){
+				if($next.length > 0){
+					$next.focus();
+				}else{
+					this.trigger("finished");
+				}
+			}
+
 		}
 	}
 
 });
+
+
+
+bb_timeinput.Views.TimeSpanInput = bb_timeinput.Views.Base.extend({
+
+	template: _.template($("#tpl-time-span-input").html()),
+
+	timeinput: bb_timeinput.Views.TimeInput,
+
+	start: undefined,
+	end: undefined,
+
+	initialize: function(options){
+		bb_timeinput.Views.Base.prototype.initialize.call(this, options);
+
+		this.start = new this.timeinput(this.options);
+		this.end = new this.timeinput(this.options);
+
+		this.listenTo(this.start, "finished", function(event){
+			this.end.$el.find(":input:first").focus();
+		}, this);
+
+	},
+
+	render: function(){
+
+		var $el = $(this.template({}));
+
+		$el.find(".start").html( this.start.render().$el );
+		$el.find(".end").html( this.end.render().$el );
+
+		this.setElement( $el );
+
+		return this;
+
+	},
+
+	getTimespan: function(){
+		return {
+			start: this.start.getTime(),
+			end: this.end.getTime()
+		}
+	},
+
+	getTimespanString: function(){
+		return this.start.getTimeString() + " - " + this.end.getTimeString();
+	}
+
+
+})
