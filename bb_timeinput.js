@@ -32,10 +32,9 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 		}
 
 		_.each(attributes, function(value, key){
-
 			if(_.contains( ["hour", "minutes"], key )){
 
-				if( _.isUndefined(value) || value == "" ){
+				if( _.isUndefined(value) || value === "" ){
 					checkedAttributes[key] = undefined; // neede for initialization
 				}else{
 
@@ -54,6 +53,12 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 			return Backbone.Model.prototype.set.call(this, checkedAttributes, options);
 		}
 
+	},
+
+	isValid: function(){
+		var valid = false;
+
+		return ( this._isMinutes( this.get("minutes") ) && this._isHour( this.get("hour") ) );
 	},
 
 	_checkInput: function(value, key){
@@ -77,6 +82,7 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 		if(
 			minutes < 0
 			|| minutes > 59
+			|| _.isUndefined( minutes )
 		){
 			return false;
 		}
@@ -89,6 +95,7 @@ bb_timeinput.Models.Time = Backbone.Model.extend({
 		if(
 			hour < 0
 			|| hour > 24
+			|| _.isUndefined( hour )
 		){
 			return false;
 		}
@@ -121,8 +128,6 @@ bb_timeinput.Views.Base = Backbone.View.extend({
 
 bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 
-	model: bb_timeinput.Models.Time,
-
 	template: _.template( $("#tpl-time-input").html() ),
 
 	changeFocus: false,
@@ -133,20 +138,27 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 	},
 
 	initialize: function(options){
-
 		bb_timeinput.Views.Base.prototype.initialize.call(this, options);
 
-		this.model = new this.model();
+		this.model = new bb_timeinput.Models.Time({
+			minutes: 	options.minutes,
+			hour: 		options.hour
+		});
 
 		this.listenTo(this.model, "change", this._updateInputs);
-
 	},
 
 	render: function(){
-		this.setElement( this.template({
-			hour: this.model.get("hour"),
-			minutes: this.model.get("minutes")
-		}) );
+		var renderSet =  {
+			hour: 	 	this.model.get("hour"),
+			minutes: 	(_.isset(this.model.get("minutes"))) ?
+							(this.model.get("minutes").toString().length < 2) ?
+								"0" + this.model.get("minutes").toString()
+								: this.model.get("minutes").toString()
+							: undefined
+		}
+
+		this.setElement( this.template(renderSet) );
 
 		this.delegateEvents();
 
@@ -167,6 +179,14 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 			minutes = "0" + minutes;
 		}
 		return this.model.get("hour").toString() + ":" + minutes;
+	},
+
+	getTimeInMinutes: function(){
+		return this.model.get("minutes") + ( this.model.get("hour")*60 );
+	},
+
+	isValid: function(){
+		return this.model.isValid();
 	},
 
 	_updateInputs: function(){
@@ -190,6 +210,7 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 	_handleBlur: function(event){
 
 		event.stopPropagation();
+
 		this._handleChange(event, this.changeFocus);
 		this.changeFocus = false;
 	},
@@ -232,8 +253,8 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 			// Value was wrong
 			$target.val("").addClass("wrongValue");
 
-			if(this.options.afterModelChange){
-				this.options.afterModelChange( newValue, type, this );
+			if(this.options.inputError){
+				this.options.inputError( newValue, type, this );
 			}
 
 			if(changeFocus)
@@ -243,8 +264,14 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 
 			$target.removeClass("wrongValue");
 
-			if(this.options.inputError){
-				this.options.inputError( newValue, type, this );
+			if(this.model.isValid()){
+				this.trigger("modelChange");
+			}
+
+			if(this.options.afterModelChange){
+
+
+				this.options.afterModelChange( newValue, type, this );
 			}
 			$target.val(newValue);	// to be sure it is cleaned of all other crap like spaces and so on
 
@@ -263,7 +290,10 @@ bb_timeinput.Views.TimeInput = bb_timeinput.Views.Base.extend({
 
 });
 
-
+/*
+	options:
+		timeStart/timeEnd -> if "int" -> "minutes since 00:00"
+*/
 
 bb_timeinput.Views.TimeSpanInput = bb_timeinput.Views.Base.extend({
 
@@ -274,24 +304,62 @@ bb_timeinput.Views.TimeSpanInput = bb_timeinput.Views.Base.extend({
 	start: undefined,
 	end: undefined,
 
+
+
+	// input OPtions with mapping to internal stuff
+	possibleTimeInputOptions: {
+		timeStart: 	"start",
+		timeEnd: 	"end"
+	},
+
+	input: undefined,
+
 	initialize: function(options){
 		bb_timeinput.Views.Base.prototype.initialize.call(this, options);
 
-		this.start = new this.timeinput(this.options);
-		this.end = new this.timeinput(this.options);
+		this.input = {};
+
+		_.each(this.possibleTimeInputOptions, function(mapTo, option){
+			if( _.has(options, option) )
+				this.input[mapTo] = this._validateInputTime( options[option] );
+		}, this);
+
+
+		this.start = new this.timeinput(
+			this.input.start ? _.extend({}, this.options, this.input.start) : this.options
+		);
+
+		this.end = new this.timeinput(
+			this.input.end ? _.extend({}, this.options, this.input.end) : this.options
+		);
 
 		this.listenTo(this.start, "finished", function(event){
 			this.end.$el.find(":input:first").focus();
 		}, this);
+
+		this.listenTo(this.end, "finished", function(event){
+			this.trigger("finished");
+		}, this);
+
+		this.listenTo(this.start, "modelChange", function(event){
+			if(this.end.model.isValid())
+				this.trigger("timeChange");
+		});
+
+		this.listenTo(this.end, "modelChange", function(event){
+			if(this.start.model.isValid())
+				this.trigger("timeChange");
+		});
 
 	},
 
 	render: function(){
 
 		var $el = $(this.template({}));
-
-		$el.find(".start").html( this.start.render().$el );
-		$el.find(".end").html( this.end.render().$el );
+		$start = this.start.render().$el
+		$el.find(".start").html( $start );
+		$end = this.end.render().$el
+		$el.find(".end").html( $end );
 
 		this.setElement( $el );
 
@@ -307,8 +375,48 @@ bb_timeinput.Views.TimeSpanInput = bb_timeinput.Views.Base.extend({
 	},
 
 	getTimespanString: function(){
-		return this.start.getTimeString() + " - " + this.end.getTimeString();
-	}
+		return this.start.getTimeString() + "-" + this.end.getTimeString();
+	},
 
+	getTimespanMinutes: function(){
+		return {
+			start: this.start.getTimeInMinutes(),
+			end: this.end.getTimeInMinutes()
+		};
+	},
+
+	isValid: function(){
+		return ( this.start.isValid() && this.end.isValid() );
+	},
+
+	_validateInputTime: function(inputTime){
+		if(_.isString( inputTime ))
+			return this._validateAsString(inputTime);
+
+		if(_.isNumber( inputTime ))
+			return this._validateAsNumber(inputTime);
+
+		if(_.isObject( inputTime ))
+			return this._validateAsObject(inputTime);
+
+		return undefined;
+	},
+
+	_validateAsNumber: function(inputTime){
+
+		if(inputTime > 1440){
+			// we assume we have seconds since 00:00
+			inputTime = moment.duration(inputTime, "seconds");
+		}else{
+			// we assume we habe minutes since 00:00
+			inputTime = moment.duration(inputTime, "minutes");
+		}
+
+		return {
+			hour: inputTime.hours(),
+			minutes: inputTime.minutes()
+		};
+
+	}
 
 })
